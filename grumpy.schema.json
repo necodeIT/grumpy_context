@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/grumpy.schema.json",
+  "title": "grumpy.yaml",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "module_roots": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "layers": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "utils": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/pathList"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "paths": {
+                  "$ref": "#/$defs/pathList"
+                }
+              }
+            }
+          ]
+        },
+        "domain": {
+          "$ref": "#/$defs/domainLayer"
+        },
+        "infra": {
+          "$ref": "#/$defs/infraLayer"
+        },
+        "presentation": {
+          "$ref": "#/$defs/presentationLayer"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "pathList": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "domainLayer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "models": {
+          "$ref": "#/$defs/pathList"
+        },
+        "services": {
+          "$ref": "#/$defs/pathList"
+        },
+        "datasources": {
+          "$ref": "#/$defs/pathList"
+        }
+      }
+    },
+    "infraLayer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "services": {
+          "$ref": "#/$defs/pathList"
+        },
+        "datasources": {
+          "$ref": "#/$defs/pathList"
+        }
+      }
+    },
+    "presentationLayer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "components": {
+          "$ref": "#/$defs/pathList"
+        },
+        "screens": {
+          "$ref": "#/$defs/pathList"
+        },
+        "repos": {
+          "$ref": "#/$defs/pathList"
+        },
+        "middleware": {
+          "$ref": "#/$defs/pathList"
+        }
+      }
+    }
+  }
+}
