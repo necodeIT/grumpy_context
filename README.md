@@ -28,7 +28,7 @@ Future<void> main() async {
 The analyzer looks for an optional root-level `grumpy.yaml`. If it is missing, built-in defaults are used.
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/necodeIT/grumpy_context/main/grumpy.schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/necodeIT/grumpy_context/refs/heads/main/grumpy.schema.json
 module_roots:
   - lib
   - lib/src
