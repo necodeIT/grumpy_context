@@ -6,18 +6,26 @@ import 'package:yaml/yaml.dart';
 import 'logging.dart';
 import 'models.dart';
 
+/// The result of reading `pubspec.yaml`.
 final class PubspecReadResult {
+  /// Creates a pubspec read result.
   const PubspecReadResult({
     required this.name,
     required this.dependencies,
     required this.diagnostics,
   });
 
+  /// The declared package name.
   final String name;
+
+  /// Grouped direct dependency declarations.
   final ProjectDependencies dependencies;
+
+  /// Diagnostics emitted while parsing the pubspec.
   final List<ProjectDiagnostic> diagnostics;
 }
 
+/// Reads `pubspec.yaml` from [projectRoot] and normalizes its dependency data.
 Future<PubspecReadResult> readPubspec(String projectRoot) async {
   final logger = grumpyLogger('pubspec');
   final diagnostics = <ProjectDiagnostic>[];

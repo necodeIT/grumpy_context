@@ -4,6 +4,11 @@ import 'models.dart';
 import 'module_scanner.dart';
 import 'pubspec_reader.dart';
 
+/// Analyzes the Dart or Flutter project rooted at [projectRoot].
+///
+/// The returned [ProjectContext] contains the resolved discovery configuration,
+/// dependency declarations, discovered modules, and any diagnostics produced
+/// while reading `pubspec.yaml` or `grumpy.yaml` and scanning the source tree.
 Future<ProjectContext> analyzeProject(String projectRoot) async {
   final logger = grumpyLogger('analyzer');
   final diagnostics = <ProjectDiagnostic>[];

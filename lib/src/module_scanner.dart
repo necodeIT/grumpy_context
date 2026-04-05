@@ -1,17 +1,24 @@
 import 'dart:io';
 
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import 'logging.dart';
 import 'models.dart';
 
+/// The result of scanning a project for configured modules.
 final class ModuleScanResult {
+  /// Creates a module scan result.
   const ModuleScanResult({required this.modules, required this.diagnostics});
 
+  /// The discovered modules.
   final List<ProjectModule> modules;
+
+  /// Diagnostics emitted while scanning the project tree.
   final List<ProjectDiagnostic> diagnostics;
 }
 
+/// Scans [projectRoot] using [config] and returns discovered modules.
 Future<ModuleScanResult> scanModules({
   required String projectRoot,
   required ResolvedGrumpyConfig config,
@@ -37,6 +44,7 @@ Future<ModuleScanResult> scanModules({
         moduleRoot: moduleRoot,
         moduleDirectory: entity,
         config: config,
+        logger: logger,
       );
       if (module == null) {
         continue;
@@ -90,6 +98,7 @@ Future<_MutableModule?> _scanModuleDirectory({
   required String moduleRoot,
   required Directory moduleDirectory,
   required ResolvedGrumpyConfig config,
+  required Logger logger,
 }) async {
   final buckets = <ModuleCategory, _MutableBucket>{};
   var hasAnyCategory = false;
@@ -113,6 +122,8 @@ Future<_MutableModule?> _scanModuleDirectory({
           files: await _collectDartFiles(
             projectRoot: projectRoot,
             directory: categoryDirectory,
+            barrelFilePatterns: config.barrelFilePatterns,
+            logger: logger,
           ),
         ),
       );
@@ -140,6 +151,8 @@ Future<_MutableModule?> _scanModuleDirectory({
 Future<List<String>> _collectDartFiles({
   required String projectRoot,
   required Directory directory,
+  required List<String> barrelFilePatterns,
+  required Logger logger,
 }) async {
   final files = <String>[];
   await for (final entity in directory.list(
@@ -147,11 +160,48 @@ Future<List<String>> _collectDartFiles({
     followLinks: false,
   )) {
     if (entity is File && p.extension(entity.path) == '.dart') {
+      if (_isBarrelFile(entity.path, barrelFilePatterns)) {
+        logger.info(
+          'Filtered barrel file ${p.relative(entity.path, from: projectRoot)}.',
+        );
+        continue;
+      }
       files.add(p.relative(entity.path, from: projectRoot));
     }
   }
   files.sort();
   return files;
+}
+
+bool _isBarrelFile(String filePath, List<String> patterns) {
+  final basename = p.basename(filePath);
+  final folderName = p.basename(p.dirname(filePath));
+
+  for (final pattern in patterns) {
+    final expandedPattern = pattern.replaceAll('{folder}', folderName);
+    if (_matchesGlob(basename, expandedPattern)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool _matchesGlob(String input, String pattern) {
+  final buffer = StringBuffer('^');
+  for (final rune in pattern.runes) {
+    final char = String.fromCharCode(rune);
+    switch (char) {
+      case '*':
+        buffer.write('.*');
+      case '?':
+        buffer.write('.');
+      default:
+        buffer.write(RegExp.escape(char));
+    }
+  }
+  buffer.write(r'$');
+  return RegExp(buffer.toString()).hasMatch(input);
 }
 
 final class _MutableModule {

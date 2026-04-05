@@ -33,6 +33,10 @@ module_roots:
   - lib
   - lib/src
 
+barrel_file_patterns:
+  - "{folder}.dart"
+  - "*.exports.dart"
+
 layers:
   utils:
     - utils
@@ -61,6 +65,11 @@ layers:
 ```
 
 The output schema is fixed. `grumpy.yaml` only changes how the project is discovered.
+
+Barrel files are hidden from bucket inventories by default. Patterns are matched
+against the file basename only, and `{folder}` expands to the immediate parent
+folder name. If filtering removes every file in a bucket, the bucket still
+exists and its `directoryPath` is preserved while `files` becomes empty.
 
 ## Logging
 

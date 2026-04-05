@@ -4,7 +4,7 @@ import 'package:grumpy_context/grumpy_context.dart';
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
-void main() {
+void main() async {
   group('analyzeProject', () {
     test('analyzes a module under lib with grouped dependencies', () async {
       final project = await _createProject(
@@ -166,6 +166,7 @@ void main() {
       final context = await analyzeProject(project.path);
 
       expect(context.config.moduleRoots, <String>['lib', 'lib/src']);
+      expect(context.config.barrelFilePatterns, <String>['{folder}.dart']);
       expect(
         context.diagnostics.where((item) => item.path == 'grumpy.yaml'),
         isEmpty,
@@ -177,6 +178,8 @@ void main() {
         grumpyYaml: '''
 module_roots:
   - src/modules
+barrel_file_patterns:
+  - "{folder}.dart"
 layers:
   utils:
     - helpers
@@ -197,6 +200,7 @@ layers:
       );
 
       expect(context.config.moduleRoots, <String>['src/modules']);
+      expect(context.config.barrelFilePatterns, <String>['{folder}.dart']);
       expect(module.rootPath, 'src/modules/payments');
       expect(
         module.categories[ModuleCategory.utils]!.files,
@@ -228,6 +232,95 @@ module_roots: nope
         isTrue,
       );
     });
+
+    test('hides folder-name barrel files by default', () async {
+      final project = await _createProject(
+        files: <String, String>{
+          'lib/auth/domain/models/models.dart': "export 'user.dart';",
+          'lib/auth/domain/models/user.dart': 'class User {}',
+        },
+      );
+
+      final context = await analyzeProject(project.path);
+      final bucket = context.modules
+          .singleWhere((item) => item.name == 'auth')
+          .categories[ModuleCategory.domainModels]!;
+
+      expect(bucket.directoryPath, 'lib/auth/domain/models');
+      expect(bucket.files, <String>['lib/auth/domain/models/user.dart']);
+    });
+
+    test('keeps a bucket when only barrel files are filtered', () async {
+      final project = await _createProject(
+        files: <String, String>{
+          'lib/auth/domain/models/models.dart': "export 'user.dart';",
+        },
+      );
+
+      final context = await analyzeProject(project.path);
+      final bucket = context.modules
+          .singleWhere((item) => item.name == 'auth')
+          .categories[ModuleCategory.domainModels]!;
+
+      expect(bucket.directoryPath, 'lib/auth/domain/models');
+      expect(bucket.files, isEmpty);
+    });
+
+    test('uses custom barrel file patterns from grumpy.yaml', () async {
+      final project = await _createProject(
+        grumpyYaml: '''
+barrel_file_patterns:
+  - "{folder}.dart"
+  - "*.exports.dart"
+''',
+        files: <String, String>{
+          'lib/auth/domain/models/models.dart': "export 'user.dart';",
+          'lib/auth/domain/models/model.exports.dart': "export 'user.dart';",
+          'lib/auth/domain/models/user.dart': 'class User {}',
+        },
+      );
+
+      final context = await analyzeProject(project.path);
+      final bucket = context.modules
+          .singleWhere((item) => item.name == 'auth')
+          .categories[ModuleCategory.domainModels]!;
+
+      expect(context.config.barrelFilePatterns, <String>[
+        '{folder}.dart',
+        '*.exports.dart',
+      ]);
+      expect(bucket.files, <String>['lib/auth/domain/models/user.dart']);
+    });
+
+    test(
+      'falls back to default barrel patterns on invalid config values',
+      () async {
+        final project = await _createProject(
+          grumpyYaml: '''
+barrel_file_patterns:
+  - ""
+''',
+          files: <String, String>{
+            'lib/auth/domain/models/models.dart': "export 'user.dart';",
+            'lib/auth/domain/models/user.dart': 'class User {}',
+          },
+        );
+
+        final context = await analyzeProject(project.path);
+        final bucket = context.modules
+            .singleWhere((item) => item.name == 'auth')
+            .categories[ModuleCategory.domainModels]!;
+
+        expect(context.config.barrelFilePatterns, <String>['{folder}.dart']);
+        expect(bucket.files, <String>['lib/auth/domain/models/user.dart']);
+        expect(
+          context.diagnostics.any(
+            (item) => item.code == 'invalid_config_barrel_file_patterns',
+          ),
+          isTrue,
+        );
+      },
+    );
 
     test('stops module discovery on fatal grumpy config errors', () async {
       final project = await _createProject(
@@ -274,6 +367,7 @@ module_roots: nope
     test('emits logging records without installing its own handlers', () async {
       final project = await _createProject(
         files: <String, String>{
+          'lib/auth/domain/models/models.dart': "export 'user.dart';",
           'lib/auth/domain/models/user.dart': 'class User {}',
         },
       );
@@ -295,6 +389,14 @@ module_roots: nope
       );
       expect(
         records.any((record) => record.loggerName == 'grumpy_context.scanner'),
+        isTrue,
+      );
+      expect(
+        records.any(
+          (record) =>
+              record.loggerName == 'grumpy_context.scanner' &&
+              record.message.contains('Filtered barrel file'),
+        ),
         isTrue,
       );
     });

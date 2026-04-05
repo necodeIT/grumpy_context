@@ -6,20 +6,28 @@ import 'package:yaml/yaml.dart';
 import 'logging.dart';
 import 'models.dart';
 
+/// The result of loading and validating `grumpy.yaml`.
 final class ConfigLoadResult {
+  /// Creates a config load result.
   const ConfigLoadResult({
     required this.config,
     required this.diagnostics,
     required this.hasFatalError,
   });
 
+  /// The resolved configuration used for discovery.
   final ResolvedGrumpyConfig config;
+
+  /// Diagnostics emitted while parsing or validating the config file.
   final List<ProjectDiagnostic> diagnostics;
+
+  /// Whether config errors are severe enough to stop module discovery.
   final bool hasFatalError;
 }
 
 const _moduleRootsKey = 'module_roots';
 const _layersKey = 'layers';
+const _barrelFilePatternsKey = 'barrel_file_patterns';
 
 const Map<String, ModuleCategory> _nestedCategoryKeyMap =
     <String, ModuleCategory>{
@@ -35,6 +43,7 @@ const Map<String, ModuleCategory> _nestedCategoryKeyMap =
       'presentation.middleware': ModuleCategory.presentationMiddleware,
     };
 
+/// Loads, validates, and resolves `grumpy.yaml` from [projectRoot].
 Future<ConfigLoadResult> loadGrumpyConfig(String projectRoot) async {
   final logger = grumpyLogger('config');
   final diagnostics = <ProjectDiagnostic>[];
@@ -116,6 +125,11 @@ Future<ConfigLoadResult> loadGrumpyConfig(String projectRoot) async {
     defaults: defaults.categoryPaths,
     diagnostics: diagnostics,
   );
+  final barrelFilePatterns = _resolveBarrelFilePatterns(
+    rawYaml: rawYaml,
+    defaults: defaults.barrelFilePatterns,
+    diagnostics: diagnostics,
+  );
 
   if (layersResult.hasFatalError) {
     logger.severe('grumpy.yaml contains fatal layer configuration errors.');
@@ -129,6 +143,7 @@ Future<ConfigLoadResult> loadGrumpyConfig(String projectRoot) async {
   final resolved = ResolvedGrumpyConfig(
     moduleRoots: moduleRoots,
     categoryPaths: layersResult.categoryPaths,
+    barrelFilePatterns: barrelFilePatterns,
   );
   logger.info(
     'Resolved config with ${resolved.moduleRoots.length} module roots and '
@@ -397,6 +412,67 @@ List<String>? _parsePathList(Object? value) {
   }
 
   return _orderedUnique(paths);
+}
+
+List<String> _resolveBarrelFilePatterns({
+  required YamlMap rawYaml,
+  required List<String> defaults,
+  required List<ProjectDiagnostic> diagnostics,
+}) {
+  final logger = grumpyLogger('config');
+  final rawPatterns = rawYaml[_barrelFilePatternsKey];
+  if (rawPatterns == null) {
+    return defaults;
+  }
+
+  if (rawPatterns is! YamlList) {
+    logger.warning('barrel_file_patterns is not a list; using defaults.');
+    diagnostics.add(
+      const ProjectDiagnostic(
+        code: 'invalid_config_barrel_file_patterns',
+        severity: DiagnosticSeverity.warning,
+        message:
+            'barrel_file_patterns must be a list of non-empty strings; using defaults.',
+        path: 'grumpy.yaml',
+      ),
+    );
+    return defaults;
+  }
+
+  final patterns = <String>[];
+  for (final item in rawPatterns) {
+    if (item is! String || item.trim().isEmpty) {
+      logger.warning(
+        'barrel_file_patterns contains an invalid entry; using defaults.',
+      );
+      diagnostics.add(
+        const ProjectDiagnostic(
+          code: 'invalid_config_barrel_file_patterns',
+          severity: DiagnosticSeverity.warning,
+          message:
+              'barrel_file_patterns must only contain non-empty strings; using defaults.',
+          path: 'grumpy.yaml',
+        ),
+      );
+      return defaults;
+    }
+    patterns.add(item);
+  }
+
+  if (patterns.isEmpty) {
+    logger.warning('barrel_file_patterns is empty; using defaults.');
+    diagnostics.add(
+      const ProjectDiagnostic(
+        code: 'invalid_config_barrel_file_patterns',
+        severity: DiagnosticSeverity.warning,
+        message: 'barrel_file_patterns must not be empty; using defaults.',
+        path: 'grumpy.yaml',
+      ),
+    );
+    return defaults;
+  }
+
+  return _orderedUnique(patterns);
 }
 
 Map<ModuleCategory, List<String>> _copyCategoryPaths(
