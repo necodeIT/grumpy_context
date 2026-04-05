@@ -2,10 +2,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.com/grumpy.schema.json",
   "title": "grumpy.yaml",
+  "description": "Configuration for grumpy_context project discovery.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
     "module_roots": {
+      "description": "Top-level directories that should be scanned for modules.",
       "type": "array",
       "items": {
         "type": "string",
@@ -15,13 +17,16 @@
       "uniqueItems": true
     },
     "barrel_file_patterns": {
+      "description": "Basename patterns for barrel files that should be hidden from bucket file inventories. The special token {folder} expands to the immediate parent folder name.",
       "$ref": "#/$defs/pathList"
     },
     "layers": {
+      "description": "The configured discovery paths for each supported architectural layer.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "utils": {
+          "description": "Discovery paths for utility files.",
           "oneOf": [
             {
               "$ref": "#/$defs/pathList"
@@ -31,6 +36,7 @@
               "additionalProperties": false,
               "properties": {
                 "paths": {
+                  "description": "Explicit discovery paths for the utils layer.",
                   "$ref": "#/$defs/pathList"
                 }
               }
@@ -38,12 +44,15 @@
           ]
         },
         "domain": {
+          "description": "Discovery paths for domain-layer buckets.",
           "$ref": "#/$defs/domainLayer"
         },
         "infra": {
+          "description": "Discovery paths for infrastructure-layer buckets.",
           "$ref": "#/$defs/infraLayer"
         },
         "presentation": {
+          "description": "Discovery paths for presentation-layer buckets.",
           "$ref": "#/$defs/presentationLayer"
         }
       }
@@ -51,6 +60,7 @@
   },
   "$defs": {
     "pathList": {
+      "description": "A non-empty list of relative discovery patterns or paths.",
       "type": "array",
       "items": {
         "type": "string",
@@ -60,46 +70,58 @@
       "uniqueItems": true
     },
     "domainLayer": {
+      "description": "Domain-layer discovery configuration.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "models": {
+          "description": "Discovery paths for domain model files.",
           "$ref": "#/$defs/pathList"
         },
         "services": {
+          "description": "Discovery paths for domain service contract files.",
           "$ref": "#/$defs/pathList"
         },
         "datasources": {
+          "description": "Discovery paths for domain datasource contract files.",
           "$ref": "#/$defs/pathList"
         }
       }
     },
     "infraLayer": {
+      "description": "Infrastructure-layer discovery configuration.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "services": {
+          "description": "Discovery paths for infrastructure service implementation files.",
           "$ref": "#/$defs/pathList"
         },
         "datasources": {
+          "description": "Discovery paths for infrastructure datasource implementation files.",
           "$ref": "#/$defs/pathList"
         }
       }
     },
     "presentationLayer": {
+      "description": "Presentation-layer discovery configuration.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "components": {
+          "description": "Discovery paths for presentation component files.",
           "$ref": "#/$defs/pathList"
         },
         "screens": {
+          "description": "Discovery paths for presentation screen files.",
           "$ref": "#/$defs/pathList"
         },
         "repos": {
+          "description": "Discovery paths for presentation repository files.",
           "$ref": "#/$defs/pathList"
         },
         "middleware": {
+          "description": "Discovery paths for presentation middleware or guard files.",
           "$ref": "#/$defs/pathList"
         }
       }
