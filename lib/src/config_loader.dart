@@ -28,6 +28,20 @@ final class ConfigLoadResult {
 const _moduleRootsKey = 'module_roots';
 const _layersKey = 'layers';
 const _barrelFilePatternsKey = 'barrel_file_patterns';
+const _defaultsKey = 'defaults';
+const _commonDefaultsKey = 'common';
+const _supportedDefaultUnits = <String>{
+  'module',
+  'service',
+  'datasource',
+  'guard',
+  'middleware',
+  'screen',
+  'component',
+  'repository',
+  'model',
+  'unit',
+};
 
 const Map<String, ModuleCategory> _nestedCategoryKeyMap =
     <String, ModuleCategory>{
@@ -48,10 +62,11 @@ Future<ConfigLoadResult> loadGrumpyConfig(String projectRoot) async {
   final logger = grumpyLogger('config');
   final diagnostics = <ProjectDiagnostic>[];
   final defaults = ResolvedGrumpyConfig.defaults();
-  final configFile = File(p.join(projectRoot, 'grumpy.yaml'));
+  final configFile = await _resolveConfigFile(projectRoot);
+  final configPath = p.basename(configFile.path);
 
   if (!await configFile.exists()) {
-    logger.info('No grumpy.yaml found at ${configFile.path}; using defaults.');
+    logger.info('No grumpy.yaml or grumpy.yml found; using defaults.');
     return ConfigLoadResult(
       config: defaults,
       diagnostics: diagnostics,
@@ -65,13 +80,13 @@ Future<ConfigLoadResult> loadGrumpyConfig(String projectRoot) async {
   try {
     rawYaml = loadYaml(await configFile.readAsString());
   } on YamlException catch (error, stackTrace) {
-    logger.severe('Failed to parse grumpy.yaml.', error, stackTrace);
+    logger.severe('Failed to parse $configPath.', error, stackTrace);
     diagnostics.add(
       ProjectDiagnostic(
         code: 'invalid_config_yaml',
         severity: DiagnosticSeverity.error,
-        message: 'Failed to parse grumpy.yaml: ${error.message}',
-        path: 'grumpy.yaml',
+        message: 'Failed to parse $configPath: ${error.message}',
+        path: configPath,
       ),
     );
     return ConfigLoadResult(
@@ -82,13 +97,13 @@ Future<ConfigLoadResult> loadGrumpyConfig(String projectRoot) async {
   }
 
   if (rawYaml == null) {
-    logger.warning('grumpy.yaml is empty; using defaults.');
+    logger.warning('$configPath is empty; using defaults.');
     diagnostics.add(
-      const ProjectDiagnostic(
+      ProjectDiagnostic(
         code: 'empty_config',
         severity: DiagnosticSeverity.warning,
-        message: 'grumpy.yaml is empty; using default discovery rules.',
-        path: 'grumpy.yaml',
+        message: '$configPath is empty; using default discovery rules.',
+        path: configPath,
       ),
     );
     return ConfigLoadResult(
@@ -99,13 +114,13 @@ Future<ConfigLoadResult> loadGrumpyConfig(String projectRoot) async {
   }
 
   if (rawYaml is! YamlMap) {
-    logger.severe('grumpy.yaml root must be a map.');
+    logger.severe('$configPath root must be a map.');
     diagnostics.add(
-      const ProjectDiagnostic(
+      ProjectDiagnostic(
         code: 'invalid_config_root',
         severity: DiagnosticSeverity.error,
-        message: 'grumpy.yaml must contain a top-level map.',
-        path: 'grumpy.yaml',
+        message: '$configPath must contain a top-level map.',
+        path: configPath,
       ),
     );
     return ConfigLoadResult(
@@ -119,20 +134,29 @@ Future<ConfigLoadResult> loadGrumpyConfig(String projectRoot) async {
     rawYaml: rawYaml,
     defaults: defaults.moduleRoots,
     diagnostics: diagnostics,
+    configPath: configPath,
   );
   final layersResult = _resolveLayers(
     rawYaml: rawYaml,
     defaults: defaults.categoryPaths,
     diagnostics: diagnostics,
+    configPath: configPath,
   );
   final barrelFilePatterns = _resolveBarrelFilePatterns(
     rawYaml: rawYaml,
     defaults: defaults.barrelFilePatterns,
     diagnostics: diagnostics,
+    configPath: configPath,
+  );
+  final generationDefaults = _resolveGenerationDefaults(
+    rawYaml: rawYaml,
+    defaults: defaults.generationDefaults,
+    diagnostics: diagnostics,
+    configPath: configPath,
   );
 
   if (layersResult.hasFatalError) {
-    logger.severe('grumpy.yaml contains fatal layer configuration errors.');
+    logger.severe('$configPath contains fatal layer configuration errors.');
     return ConfigLoadResult(
       config: defaults,
       diagnostics: diagnostics,
@@ -144,6 +168,7 @@ Future<ConfigLoadResult> loadGrumpyConfig(String projectRoot) async {
     moduleRoots: moduleRoots,
     categoryPaths: layersResult.categoryPaths,
     barrelFilePatterns: barrelFilePatterns,
+    generationDefaults: generationDefaults,
   );
   logger.info(
     'Resolved config with ${resolved.moduleRoots.length} module roots and '
@@ -161,6 +186,7 @@ List<String> _resolveModuleRoots({
   required YamlMap rawYaml,
   required List<String> defaults,
   required List<ProjectDiagnostic> diagnostics,
+  required String configPath,
 }) {
   final logger = grumpyLogger('config');
   final rawRoots = rawYaml[_moduleRootsKey];
@@ -171,12 +197,12 @@ List<String> _resolveModuleRoots({
   if (rawRoots is! YamlList) {
     logger.warning('module_roots is not a list; using defaults.');
     diagnostics.add(
-      const ProjectDiagnostic(
+      ProjectDiagnostic(
         code: 'invalid_config_module_roots',
         severity: DiagnosticSeverity.warning,
         message:
             'module_roots must be a list of non-empty strings; using defaults.',
-        path: 'grumpy.yaml',
+        path: configPath,
       ),
     );
     return defaults;
@@ -187,12 +213,12 @@ List<String> _resolveModuleRoots({
     if (item is! String || item.trim().isEmpty) {
       logger.warning('module_roots contains an invalid entry; using defaults.');
       diagnostics.add(
-        const ProjectDiagnostic(
+        ProjectDiagnostic(
           code: 'invalid_config_module_roots',
           severity: DiagnosticSeverity.warning,
           message:
               'module_roots must only contain non-empty strings; using defaults.',
-          path: 'grumpy.yaml',
+          path: configPath,
         ),
       );
       return defaults;
@@ -203,11 +229,11 @@ List<String> _resolveModuleRoots({
   if (roots.isEmpty) {
     logger.warning('module_roots is empty; using defaults.');
     diagnostics.add(
-      const ProjectDiagnostic(
+      ProjectDiagnostic(
         code: 'invalid_config_module_roots',
         severity: DiagnosticSeverity.warning,
         message: 'module_roots must not be empty; using defaults.',
-        path: 'grumpy.yaml',
+        path: configPath,
       ),
     );
     return defaults;
@@ -230,6 +256,7 @@ _LayerResolutionResult _resolveLayers({
   required YamlMap rawYaml,
   required Map<ModuleCategory, List<String>> defaults,
   required List<ProjectDiagnostic> diagnostics,
+  required String configPath,
 }) {
   final logger = grumpyLogger('config');
   final rawLayers = rawYaml[_layersKey];
@@ -242,11 +269,11 @@ _LayerResolutionResult _resolveLayers({
 
   if (rawLayers is! YamlMap) {
     diagnostics.add(
-      const ProjectDiagnostic(
+      ProjectDiagnostic(
         code: 'invalid_config_layers',
         severity: DiagnosticSeverity.error,
-        message: 'layers must be a map in grumpy.yaml.',
-        path: 'grumpy.yaml',
+        message: 'layers must be a map in $configPath.',
+        path: configPath,
       ),
     );
     return _LayerResolutionResult(
@@ -276,6 +303,7 @@ _LayerResolutionResult _resolveLayers({
         value: entry.value,
         diagnostics: diagnostics,
         resolved: resolved,
+        configPath: configPath,
       );
       continue;
     }
@@ -288,6 +316,7 @@ _LayerResolutionResult _resolveLayers({
         value: entry.value,
         diagnostics: diagnostics,
         resolved: resolved,
+        configPath: configPath,
       );
       continue;
     }
@@ -297,8 +326,8 @@ _LayerResolutionResult _resolveLayers({
       ProjectDiagnostic(
         code: 'unknown_config_layer',
         severity: DiagnosticSeverity.warning,
-        message: 'Ignoring unknown layer "$layerKey" in grumpy.yaml.',
-        path: 'grumpy.yaml',
+        message: 'Ignoring unknown layer "$layerKey" in $configPath.',
+        path: configPath,
       ),
     );
   }
@@ -310,18 +339,19 @@ void _resolveUtilsLayer({
   required Object? value,
   required List<ProjectDiagnostic> diagnostics,
   required Map<ModuleCategory, List<String>> resolved,
+  required String configPath,
 }) {
   final paths =
       _parsePathList(value) ??
       (value is YamlMap ? _parsePathList(value['paths']) : null);
   if (paths == null || paths.isEmpty) {
     diagnostics.add(
-      const ProjectDiagnostic(
+      ProjectDiagnostic(
         code: 'invalid_config_layer_paths',
         severity: DiagnosticSeverity.warning,
         message:
             'Layer "utils" must be a list of non-empty strings; using defaults.',
-        path: 'grumpy.yaml',
+        path: configPath,
       ),
     );
     return;
@@ -335,6 +365,7 @@ void _resolveNestedLayer({
   required Object? value,
   required List<ProjectDiagnostic> diagnostics,
   required Map<ModuleCategory, List<String>> resolved,
+  required String configPath,
 }) {
   final logger = grumpyLogger('config');
   if (value is! YamlMap) {
@@ -344,7 +375,7 @@ void _resolveNestedLayer({
         severity: DiagnosticSeverity.warning,
         message:
             'Layer "$layerKey" must be a map of path lists; using defaults for this layer.',
-        path: 'grumpy.yaml',
+        path: configPath,
       ),
     );
     return;
@@ -354,11 +385,11 @@ void _resolveNestedLayer({
     final subKey = entry.key;
     if (subKey is! String) {
       diagnostics.add(
-        const ProjectDiagnostic(
+        ProjectDiagnostic(
           code: 'invalid_config_layer_key',
           severity: DiagnosticSeverity.warning,
-          message: 'Ignoring non-string nested layer key in grumpy.yaml.',
-          path: 'grumpy.yaml',
+          message: 'Ignoring non-string nested layer key in $configPath.',
+          path: configPath,
         ),
       );
       continue;
@@ -373,8 +404,8 @@ void _resolveNestedLayer({
           code: 'unknown_config_layer',
           severity: DiagnosticSeverity.warning,
           message:
-              'Ignoring unknown nested layer "$compoundKey" in grumpy.yaml.',
-          path: 'grumpy.yaml',
+              'Ignoring unknown nested layer "$compoundKey" in $configPath.',
+          path: configPath,
         ),
       );
       continue;
@@ -388,7 +419,7 @@ void _resolveNestedLayer({
           severity: DiagnosticSeverity.warning,
           message:
               'Layer "$compoundKey" must contain non-empty string paths; using defaults.',
-          path: 'grumpy.yaml',
+          path: configPath,
         ),
       );
       continue;
@@ -418,6 +449,7 @@ List<String> _resolveBarrelFilePatterns({
   required YamlMap rawYaml,
   required List<String> defaults,
   required List<ProjectDiagnostic> diagnostics,
+  required String configPath,
 }) {
   final logger = grumpyLogger('config');
   final rawPatterns = rawYaml[_barrelFilePatternsKey];
@@ -428,12 +460,12 @@ List<String> _resolveBarrelFilePatterns({
   if (rawPatterns is! YamlList) {
     logger.warning('barrel_file_patterns is not a list; using defaults.');
     diagnostics.add(
-      const ProjectDiagnostic(
+      ProjectDiagnostic(
         code: 'invalid_config_barrel_file_patterns',
         severity: DiagnosticSeverity.warning,
         message:
             'barrel_file_patterns must be a list of non-empty strings; using defaults.',
-        path: 'grumpy.yaml',
+        path: configPath,
       ),
     );
     return defaults;
@@ -446,12 +478,12 @@ List<String> _resolveBarrelFilePatterns({
         'barrel_file_patterns contains an invalid entry; using defaults.',
       );
       diagnostics.add(
-        const ProjectDiagnostic(
+        ProjectDiagnostic(
           code: 'invalid_config_barrel_file_patterns',
           severity: DiagnosticSeverity.warning,
           message:
               'barrel_file_patterns must only contain non-empty strings; using defaults.',
-          path: 'grumpy.yaml',
+          path: configPath,
         ),
       );
       return defaults;
@@ -462,17 +494,188 @@ List<String> _resolveBarrelFilePatterns({
   if (patterns.isEmpty) {
     logger.warning('barrel_file_patterns is empty; using defaults.');
     diagnostics.add(
-      const ProjectDiagnostic(
+      ProjectDiagnostic(
         code: 'invalid_config_barrel_file_patterns',
         severity: DiagnosticSeverity.warning,
         message: 'barrel_file_patterns must not be empty; using defaults.',
-        path: 'grumpy.yaml',
+        path: configPath,
       ),
     );
     return defaults;
   }
 
   return _orderedUnique(patterns);
+}
+
+GrumpyGenerationDefaults _resolveGenerationDefaults({
+  required YamlMap rawYaml,
+  required GrumpyGenerationDefaults defaults,
+  required List<ProjectDiagnostic> diagnostics,
+  required String configPath,
+}) {
+  final logger = grumpyLogger('config');
+  final rawDefaults = rawYaml[_defaultsKey];
+  if (rawDefaults == null) {
+    return defaults;
+  }
+  if (rawDefaults is! YamlMap) {
+    diagnostics.add(
+      ProjectDiagnostic(
+        code: 'invalid_config_defaults',
+        severity: DiagnosticSeverity.warning,
+        message: 'defaults must be a map in $configPath; using defaults.',
+        path: configPath,
+      ),
+    );
+    return defaults;
+  }
+
+  final common = Map<String, Object?>.from(defaults.common);
+  final unitDefaults = defaults.unitDefaults.map(
+    (unit, values) => MapEntry(unit, Map<String, Object?>.from(values)),
+  );
+
+  for (final entry in rawDefaults.entries) {
+    final rawKey = entry.key;
+    if (rawKey is! String) {
+      diagnostics.add(
+        ProjectDiagnostic(
+          code: 'invalid_config_defaults_key',
+          severity: DiagnosticSeverity.warning,
+          message: 'Ignoring non-string defaults key in $configPath.',
+          path: configPath,
+        ),
+      );
+      continue;
+    }
+
+    final section = _parseDefaultSectionMap(
+      entry.value,
+      diagnostics: diagnostics,
+      configPath: configPath,
+      sectionName: rawKey,
+    );
+    if (section == null) {
+      continue;
+    }
+
+    if (rawKey == _commonDefaultsKey) {
+      common.addAll(section);
+      continue;
+    }
+
+    if (!_supportedDefaultUnits.contains(rawKey)) {
+      logger.warning('Ignoring unknown defaults section "$rawKey".');
+      diagnostics.add(
+        ProjectDiagnostic(
+          code: 'unknown_config_defaults_section',
+          severity: DiagnosticSeverity.warning,
+          message: 'Ignoring unknown defaults section "$rawKey" in $configPath.',
+          path: configPath,
+        ),
+      );
+      continue;
+    }
+
+    unitDefaults[rawKey] = {
+      ...?unitDefaults[rawKey],
+      ...section,
+    };
+  }
+
+  return GrumpyGenerationDefaults(common: common, unitDefaults: unitDefaults);
+}
+
+Map<String, Object?>? _parseDefaultSectionMap(
+  Object? value, {
+  required List<ProjectDiagnostic> diagnostics,
+  required String configPath,
+  required String sectionName,
+}) {
+  if (value is! YamlMap) {
+    diagnostics.add(
+      ProjectDiagnostic(
+        code: 'invalid_config_defaults_section',
+        severity: DiagnosticSeverity.warning,
+        message:
+            'defaults.$sectionName must be a map in $configPath; ignoring it.',
+        path: configPath,
+      ),
+    );
+    return null;
+  }
+
+  final resolved = <String, Object?>{};
+  for (final entry in value.entries) {
+    if (entry.key is! String) {
+      diagnostics.add(
+        ProjectDiagnostic(
+          code: 'invalid_config_defaults_value_key',
+          severity: DiagnosticSeverity.warning,
+          message:
+              'Ignoring non-string defaults key in defaults.$sectionName from $configPath.',
+          path: configPath,
+        ),
+      );
+      continue;
+    }
+    final normalized = _normalizeDefaultValue(entry.value);
+    if (normalized == null) {
+      diagnostics.add(
+        ProjectDiagnostic(
+          code: 'invalid_config_defaults_value',
+          severity: DiagnosticSeverity.warning,
+          message:
+              'Ignoring unsupported value for defaults.$sectionName.${entry.key} in $configPath.',
+          path: configPath,
+        ),
+      );
+      continue;
+    }
+    resolved[entry.key as String] = normalized;
+  }
+
+  return resolved;
+}
+
+Object? _normalizeDefaultValue(Object? value) {
+  if (value == null || value is String || value is bool || value is num) {
+    return value;
+  }
+  if (value is YamlList) {
+    final normalized = <Object?>[];
+    for (final item in value) {
+      final resolved = _normalizeDefaultValue(item);
+      if (resolved == null && item != null) {
+        return null;
+      }
+      normalized.add(resolved);
+    }
+    return normalized;
+  }
+  if (value is YamlMap) {
+    final normalized = <String, Object?>{};
+    for (final entry in value.entries) {
+      if (entry.key is! String) {
+        return null;
+      }
+      final resolved = _normalizeDefaultValue(entry.value);
+      if (resolved == null && entry.value != null) {
+        return null;
+      }
+      normalized[entry.key as String] = resolved;
+    }
+    return normalized;
+  }
+  return null;
+}
+
+Future<File> _resolveConfigFile(String projectRoot) async {
+  final yaml = File(p.join(projectRoot, 'grumpy.yaml'));
+  if (await yaml.exists()) {
+    return yaml;
+  }
+  return File(p.join(projectRoot, 'grumpy.yml'));
 }
 
 Map<ModuleCategory, List<String>> _copyCategoryPaths(

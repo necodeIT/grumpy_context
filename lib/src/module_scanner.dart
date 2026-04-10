@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 
 import 'logging.dart';
 import 'models.dart';
+import 'unit_scanner.dart';
 
 /// The result of scanning a project for configured modules.
 final class ModuleScanResult {
@@ -73,9 +74,15 @@ Future<ModuleScanResult> scanModules({
   }
 
   final modules =
-      modulesByName.values
-          .map((module) => module.build(diagnostics: diagnostics))
-          .toList()
+      await Future.wait(
+          modulesByName.values.map(
+            (module) => module.build(
+              projectRoot: projectRoot,
+              config: config,
+              diagnostics: diagnostics,
+            ),
+          ),
+        )
         ..sort((left, right) => left.name.compareTo(right.name));
 
   if (modules.isEmpty) {
@@ -224,7 +231,11 @@ final class _MutableModule {
     }
   }
 
-  ProjectModule build({required List<ProjectDiagnostic> diagnostics}) {
+  Future<ProjectModule> build({
+    required String projectRoot,
+    required ResolvedGrumpyConfig config,
+    required List<ProjectDiagnostic> diagnostics,
+  }) async {
     final logger = grumpyLogger('diagnostics');
     final missingCategories = <String>[];
     final builtCategories = <ModuleCategory, ModuleBucket>{};
@@ -266,10 +277,20 @@ final class _MutableModule {
       diagnostics.add(diagnostic);
     }
 
+    final units = await discoverUnits(
+      projectRoot: projectRoot,
+      module: ProjectModuleSeed(
+        name: name,
+        rootPath: rootPath,
+        categories: builtCategories,
+      ),
+    );
+
     return ProjectModule(
       name: name,
       rootPath: rootPath,
       categories: builtCategories,
+      units: units,
     );
   }
 }

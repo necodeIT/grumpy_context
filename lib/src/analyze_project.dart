@@ -29,6 +29,7 @@ Future<ProjectContext> analyzeProject(String projectRoot) async {
       name: pubspecResult.name,
       dependencies: pubspecResult.dependencies,
       modules: const <ProjectModule>[],
+      units: const <ProjectUnit>[],
       diagnostics: diagnostics,
       config: configResult.config,
     );
@@ -49,6 +50,7 @@ Future<ProjectContext> analyzeProject(String projectRoot) async {
     name: pubspecResult.name,
     dependencies: pubspecResult.dependencies,
     modules: moduleScanResult.modules,
+    units: moduleScanResult.modules.expand((module) => module.units).toList(),
     diagnostics: diagnostics,
     config: configResult.config,
   );

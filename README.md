@@ -62,6 +62,16 @@ layers:
     middleware:
       - presentation/middleware
       - presentation/guards
+
+defaults:
+  model:
+    fields:
+      id:
+        type: String
+      displayName:
+        type: String
+        nullable: true
+        default: "'guest'"
 ```
 
 The output schema is fixed. `grumpy.yaml` only changes how the project is discovered.

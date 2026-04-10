@@ -51,6 +51,45 @@ enum ModuleCategory {
   presentationMiddleware,
 }
 
+/// Identifies supported discoverable Grumpy unit types.
+enum ProjectUnitKind {
+  /// A Flutter app/root module extending `AppModule`.
+  appModule,
+
+  /// A feature module extending `Module`.
+  module,
+
+  /// A domain service contract.
+  domainService,
+
+  /// An infra service implementation.
+  infraService,
+
+  /// A domain datasource contract.
+  domainDatasource,
+
+  /// An infra datasource implementation.
+  infraDatasource,
+
+  /// A presentation repository.
+  repo,
+
+  /// A presentation guard.
+  guard,
+
+  /// A presentation middleware that is not a guard.
+  middleware,
+
+  /// A presentation screen.
+  screen,
+
+  /// A presentation component.
+  component,
+
+  /// A domain model.
+  model,
+}
+
 /// Describes the severity of a diagnostic emitted during analysis.
 enum DiagnosticSeverity {
   /// Informational output that does not imply a problem.
@@ -70,6 +109,7 @@ class ProjectContext {
     required this.name,
     required this.dependencies,
     required this.modules,
+    required this.units,
     required this.diagnostics,
     required this.config,
   });
@@ -83,6 +123,9 @@ class ProjectContext {
   /// The discovered modules.
   final List<ProjectModule> modules;
 
+  /// All discovered typed units across all modules.
+  final List<ProjectUnit> units;
+
   /// Diagnostics emitted while reading config, pubspec, and modules.
   final List<ProjectDiagnostic> diagnostics;
 
@@ -95,6 +138,7 @@ class ProjectContext {
       'name': name,
       'dependencies': dependencies.toJson(),
       'modules': modules.map((module) => module.toJson()).toList(),
+      'units': units.map((unit) => unit.toJson()).toList(),
       'diagnostics': diagnostics
           .map((diagnostic) => diagnostic.toJson())
           .toList(),
@@ -105,6 +149,38 @@ class ProjectContext {
   /// Returns whether the project appears to use `grumpy_flutter`.
   bool get isFlutterProject {
     return dependencies.dependencies.any((dep) => dep.name == 'grumpy_flutter');
+  }
+
+  /// Returns the discovered module with the given [moduleName], if any.
+  ProjectModule? moduleByName(String moduleName) {
+    for (final module in modules) {
+      if (module.name == moduleName) {
+        return module;
+      }
+    }
+    return null;
+  }
+
+  /// Returns all discovered units of [kind].
+  List<ProjectUnit> unitsOfKind(ProjectUnitKind kind) {
+    return units.where((unit) => unit.kind == kind).toList(growable: false);
+  }
+
+  /// Resolves the preferred output directory for [kind] inside [moduleName].
+  String? preferredDirectoryPath(
+    String moduleName,
+    ProjectUnitKind kind, {
+    bool preferExisting = true,
+  }) {
+    final module = moduleByName(moduleName);
+    if (module == null) {
+      return null;
+    }
+    return module.preferredDirectoryPath(
+      kind,
+      config: config,
+      preferExisting: preferExisting,
+    );
   }
 }
 
@@ -185,9 +261,11 @@ class ProjectModule {
     required this.name,
     required this.rootPath,
     required Map<ModuleCategory, ModuleBucket> categories,
+    required List<ProjectUnit> units,
   }) : categories = UnmodifiableMapView<ModuleCategory, ModuleBucket>(
          categories,
-       );
+       ),
+       units = List.unmodifiable(units);
 
   /// The module identifier, derived from the top-level folder name.
   final String name;
@@ -198,6 +276,9 @@ class ProjectModule {
   /// The normalized bucket inventory for this module.
   final Map<ModuleCategory, ModuleBucket> categories;
 
+  /// All discovered typed units within this module.
+  final List<ProjectUnit> units;
+
   /// Converts this module into a JSON-compatible map.
   Map<String, Object?> toJson() {
     return <String, Object?>{
@@ -206,7 +287,44 @@ class ProjectModule {
       'categories': categories.map(
         (category, bucket) => MapEntry(category.name, bucket.toJson()),
       ),
+      'units': units.map((unit) => unit.toJson()).toList(),
     };
+  }
+
+  /// Returns all discovered units of [kind] within this module.
+  List<ProjectUnit> unitsOfKind(ProjectUnitKind kind) {
+    return units.where((unit) => unit.kind == kind).toList(growable: false);
+  }
+
+  /// Resolves a preferred output directory for [kind].
+  String? preferredDirectoryPath(
+    ProjectUnitKind kind, {
+    required ResolvedGrumpyConfig config,
+    bool preferExisting = true,
+  }) {
+    final preferredCategories = _categoriesForUnitKind(kind);
+    for (final category in preferredCategories) {
+      final bucket = categories[category];
+      if (bucket != null && preferExisting && bucket.exists) {
+        if (category == ModuleCategory.presentationMiddleware) {
+          return bucket.preferredDirectoryPathFor(kind);
+        }
+        return bucket.directoryPath;
+      }
+    }
+
+    final category = preferredCategories.firstOrNull;
+    if (category == null) {
+      return null;
+    }
+
+    final aliases = config.categoryPaths[category] ?? const <String>[];
+    if (aliases.isEmpty) {
+      return null;
+    }
+
+    final preferredAlias = _preferredAliasFor(kind, aliases);
+    return '$rootPath/$preferredAlias';
   }
 }
 
@@ -224,9 +342,93 @@ class ModuleBucket {
   /// Whether the bucket exists on disk.
   bool get exists => directoryPath != null;
 
+  /// Returns a preferred directory path for [kind] when this bucket has aliases.
+  String? preferredDirectoryPathFor(ProjectUnitKind kind) {
+    if (!exists) {
+      return null;
+    }
+    if (kind == ProjectUnitKind.guard &&
+        directoryPath != null &&
+        directoryPath!.endsWith('/presentation/middleware')) {
+      return directoryPath!.replaceFirst(
+        '/presentation/middleware',
+        '/presentation/guards',
+      );
+    }
+    return directoryPath;
+  }
+
   /// Converts this bucket into a JSON-compatible map.
   Map<String, Object?> toJson() {
     return <String, Object?>{'directoryPath': directoryPath, 'files': files};
+  }
+}
+
+/// A discovered typed unit within a project module.
+class ProjectUnit {
+  /// Creates a project unit.
+  const ProjectUnit({
+    required this.name,
+    required this.kind,
+    required this.moduleName,
+    required this.filePath,
+    required this.category,
+    required this.isAbstract,
+    required this.extendsName,
+    required this.mixins,
+    required this.genericSignature,
+    this.contractName,
+    this.configType,
+  });
+
+  /// The declared type name.
+  final String name;
+
+  /// The normalized unit kind.
+  final ProjectUnitKind kind;
+
+  /// The module this unit belongs to.
+  final String moduleName;
+
+  /// The relative file path containing the unit.
+  final String filePath;
+
+  /// The normalized module category this unit was discovered from.
+  final ModuleCategory? category;
+
+  /// Whether the primary declaration is abstract.
+  final bool isAbstract;
+
+  /// The extended type name, when present.
+  final String? extendsName;
+
+  /// Mixin type names applied to the declaration.
+  final List<String> mixins;
+
+  /// The declaration generic signature, for example `<T>` or `<AppConfig>`.
+  final String? genericSignature;
+
+  /// The corresponding domain contract for infra units, when resolved.
+  final String? contractName;
+
+  /// The discovered config type for modules and app modules.
+  final String? configType;
+
+  /// Converts this unit into a JSON-compatible map.
+  Map<String, Object?> toJson() {
+    return <String, Object?>{
+      'name': name,
+      'kind': kind.name,
+      'moduleName': moduleName,
+      'filePath': filePath,
+      'category': category?.name,
+      'isAbstract': isAbstract,
+      'extendsName': extendsName,
+      'mixins': mixins,
+      'genericSignature': genericSignature,
+      'contractName': contractName,
+      'configType': configType,
+    };
   }
 }
 
@@ -263,6 +465,55 @@ class ProjectDiagnostic {
   }
 }
 
+List<ModuleCategory> _categoriesForUnitKind(ProjectUnitKind kind) {
+  switch (kind) {
+    case ProjectUnitKind.appModule:
+    case ProjectUnitKind.module:
+      return const <ModuleCategory>[];
+    case ProjectUnitKind.domainService:
+      return const <ModuleCategory>[ModuleCategory.domainServices];
+    case ProjectUnitKind.infraService:
+      return const <ModuleCategory>[ModuleCategory.infraServices];
+    case ProjectUnitKind.domainDatasource:
+      return const <ModuleCategory>[ModuleCategory.domainDatasources];
+    case ProjectUnitKind.infraDatasource:
+      return const <ModuleCategory>[ModuleCategory.infraDatasources];
+    case ProjectUnitKind.repo:
+      return const <ModuleCategory>[ModuleCategory.presentationRepos];
+    case ProjectUnitKind.guard:
+    case ProjectUnitKind.middleware:
+      return const <ModuleCategory>[ModuleCategory.presentationMiddleware];
+    case ProjectUnitKind.screen:
+      return const <ModuleCategory>[ModuleCategory.presentationScreens];
+    case ProjectUnitKind.component:
+      return const <ModuleCategory>[ModuleCategory.presentationComponents];
+    case ProjectUnitKind.model:
+      return const <ModuleCategory>[ModuleCategory.domainModels];
+  }
+}
+
+String _preferredAliasFor(ProjectUnitKind kind, List<String> aliases) {
+  if (kind == ProjectUnitKind.guard) {
+    for (final alias in aliases) {
+      if (alias.endsWith('presentation/guards')) {
+        return alias;
+      }
+    }
+  }
+  if (kind == ProjectUnitKind.middleware) {
+    for (final alias in aliases) {
+      if (alias.endsWith('presentation/middleware')) {
+        return alias;
+      }
+    }
+  }
+  return aliases.first;
+}
+
+extension<T> on List<T> {
+  T? get firstOrNull => isEmpty ? null : first;
+}
+
 /// The resolved discovery configuration applied to a project analysis.
 class ResolvedGrumpyConfig {
   /// Creates a resolved config.
@@ -270,6 +521,7 @@ class ResolvedGrumpyConfig {
     required List<String> moduleRoots,
     required Map<ModuleCategory, List<String>> categoryPaths,
     required List<String> barrelFilePatterns,
+    required this.generationDefaults,
   }) : moduleRoots = List.unmodifiable(moduleRoots),
        categoryPaths = UnmodifiableMapView<ModuleCategory, List<String>>(
          categoryPaths.map(
@@ -286,6 +538,9 @@ class ResolvedGrumpyConfig {
 
   /// Basename patterns used to hide barrel files from bucket inventories.
   final List<String> barrelFilePatterns;
+
+  /// Project-configured generation defaults consumed by Mason hooks.
+  final GrumpyGenerationDefaults generationDefaults;
 
   /// Returns the built-in default discovery configuration.
   factory ResolvedGrumpyConfig.defaults() {
@@ -311,6 +566,7 @@ class ResolvedGrumpyConfig {
         ],
       },
       barrelFilePatterns: const <String>['{folder}.dart'],
+      generationDefaults: GrumpyGenerationDefaults.empty(),
     );
   }
 
@@ -322,6 +578,61 @@ class ResolvedGrumpyConfig {
         (category, paths) => MapEntry(category.name, paths),
       ),
       'barrelFilePatterns': barrelFilePatterns,
+      'generationDefaults': generationDefaults.toJson(),
     };
   }
+}
+
+/// Project-configured defaults applied during brick generation.
+class GrumpyGenerationDefaults {
+  /// Creates generation defaults.
+  GrumpyGenerationDefaults({
+    Map<String, Object?> common = const <String, Object?>{},
+    Map<String, Map<String, Object?>> unitDefaults =
+        const <String, Map<String, Object?>>{},
+  }) : common = Map.unmodifiable(_normalizeValueMap(common)),
+       unitDefaults = Map.unmodifiable(<String, Map<String, Object?>>{
+         for (final entry in unitDefaults.entries)
+           entry.key: Map<String, Object?>.unmodifiable(
+             _normalizeValueMap(entry.value),
+           ),
+       });
+
+  /// Shared defaults applied to all unit kinds.
+  final Map<String, Object?> common;
+
+  /// Per-unit defaults keyed by brick unit name, for example `repository`.
+  final Map<String, Map<String, Object?>> unitDefaults;
+
+  /// Creates an empty defaults set.
+  factory GrumpyGenerationDefaults.empty() => GrumpyGenerationDefaults();
+
+  /// Merges [common] and the defaults for [unitKind].
+  Map<String, Object?> defaultsForUnit(String unitKind) {
+    return <String, Object?>{...common, ...?unitDefaults[unitKind]};
+  }
+
+  /// Converts defaults into a JSON-compatible map.
+  Map<String, Object?> toJson() {
+    return <String, Object?>{'common': common, 'unitDefaults': unitDefaults};
+  }
+}
+
+Map<String, Object?> _normalizeValueMap(Map<String, Object?> input) {
+  return input.map((key, value) => MapEntry(key, _normalizeConfigValue(value)));
+}
+
+Object? _normalizeConfigValue(Object? value) {
+  if (value is List) {
+    return List.unmodifiable(value.map(_normalizeConfigValue));
+  }
+  if (value is Map) {
+    return Map.unmodifiable(
+      value.map(
+        (key, nestedValue) =>
+            MapEntry('$key', _normalizeConfigValue(nestedValue)),
+      ),
+    );
+  }
+  return value;
 }

@@ -69,6 +69,159 @@ void main() async {
       );
     });
 
+    test('discovers typed units, contracts, and module config types', () async {
+      final project = await _createProject(
+        files: <String, String>{
+          'lib/src/app/app.dart': '''
+import 'package:grumpy_flutter/grumpy_flutter.dart';
+
+class App extends AppModule<AppConfig> {
+  App(super.cfg);
+
+  @override
+  Screen get notFoundScreen => NotFoundScreen();
+
+  @override
+  Widget buildApp() => throw UnimplementedError();
+}
+''',
+          'lib/src/app/domain/models/app_config.dart': '''
+class AppConfig {}
+''',
+          'lib/src/app/presentation/screens/not_found_screen.dart': '''
+class NotFoundScreen {}
+''',
+          'lib/src/auth/auth.dart': '''
+import 'package:grumpy_flutter/grumpy_flutter.dart';
+
+class Auth extends Module<AppConfig> {
+  @override
+  List<FlutterRoute<AppConfig>> get routes => const [];
+
+  @override
+  String get logTag => 'Auth';
+}
+''',
+          'lib/src/auth/domain/services/auth_service.dart': '''
+import 'package:grumpy/grumpy.dart';
+
+abstract class AuthService extends Service {
+  factory AuthService() {
+    return Service.get<AuthService>();
+  }
+
+  @override
+  String get group => '\${super.group}.AuthService';
+}
+''',
+          'lib/src/auth/infra/services/local_auth_service.dart': '''
+import 'package:grumpy/grumpy.dart';
+
+class LocalAuthService extends AuthService {
+  @override
+  String get logTag => 'LocalAuthService';
+}
+''',
+          'lib/src/auth/presentation/guards/auth_guard.dart': '''
+import 'package:grumpy_flutter/grumpy_flutter.dart';
+
+class AuthGuard extends Guard<AppConfig> {
+  const AuthGuard({super.redirectTo});
+
+  @override
+  Future<bool> canActivate(RouteContext context) async => true;
+
+  @override
+  String get logTag => 'AuthGuard';
+
+  @override
+  String toString() => logTag;
+}
+''',
+          'lib/src/auth/presentation/middleware/session_middleware.dart': '''
+import 'package:flutter/widgets.dart';
+import 'package:grumpy_flutter/grumpy_flutter.dart';
+
+class SessionMiddleware extends Middleware<Widget, AppConfig> {
+  const SessionMiddleware();
+
+  @override
+  Future<RouteContext> call(RouteContext context) async => context;
+
+  @override
+  String get logTag => 'SessionMiddleware';
+
+  @override
+  String toString() => logTag;
+}
+''',
+        },
+      );
+
+      final context = await analyzeProject(project.path);
+
+      final appUnit = context.units.singleWhere(
+        (unit) => unit.kind == ProjectUnitKind.appModule,
+      );
+      final moduleUnit = context.units.singleWhere(
+        (unit) => unit.kind == ProjectUnitKind.module,
+      );
+      final domainService = context.units.singleWhere(
+        (unit) => unit.name == 'AuthService',
+      );
+      final infraService = context.units.singleWhere(
+        (unit) => unit.name == 'LocalAuthService',
+      );
+      final guard = context.units.singleWhere(
+        (unit) => unit.name == 'AuthGuard',
+      );
+      final middleware = context.units.singleWhere(
+        (unit) => unit.name == 'SessionMiddleware',
+      );
+
+      expect(appUnit.configType, 'AppConfig');
+      expect(moduleUnit.configType, 'AppConfig');
+      expect(domainService.kind, ProjectUnitKind.domainService);
+      expect(infraService.kind, ProjectUnitKind.infraService);
+      expect(infraService.contractName, 'AuthService');
+      expect(infraService.moduleName, 'auth');
+      expect(guard.kind, ProjectUnitKind.guard);
+      expect(middleware.kind, ProjectUnitKind.middleware);
+    });
+
+    test(
+      'resolves preferred output directories for guards and middleware',
+      () async {
+        final project = await _createProject(
+          files: <String, String>{
+            'lib/src/auth/auth.dart': '''
+import 'package:grumpy_flutter/grumpy_flutter.dart';
+
+class Auth extends Module<AppConfig> {
+  @override
+  String get logTag => 'Auth';
+}
+''',
+            'lib/src/auth/presentation/guards/auth_guard.dart':
+                'class AuthGuard extends Guard<AppConfig> { @override Future<bool> canActivate(RouteContext context) async => true; @override String get logTag => "AuthGuard"; @override String toString() => logTag; }',
+            'lib/src/auth/presentation/middleware/session_middleware.dart':
+                'class SessionMiddleware extends Middleware<Object, AppConfig> { @override Future<RouteContext> call(RouteContext context) async => context; @override String get logTag => "SessionMiddleware"; @override String toString() => logTag; }',
+          },
+        );
+
+        final context = await analyzeProject(project.path);
+
+        expect(
+          context.preferredDirectoryPath('auth', ProjectUnitKind.guard),
+          'lib/src/auth/presentation/guards',
+        );
+        expect(
+          context.preferredDirectoryPath('auth', ProjectUnitKind.middleware),
+          'lib/src/auth/presentation/middleware',
+        );
+      },
+    );
+
     test('merges duplicate module roots and emits a warning', () async {
       final project = await _createProject(
         files: <String, String>{
@@ -209,6 +362,62 @@ layers:
       expect(
         module.categories[ModuleCategory.domainModels]!.files,
         contains('src/modules/payments/entities/invoice.dart'),
+      );
+    });
+
+    test('loads generation defaults from grumpy.yml', () async {
+      final project = await _createProject(
+        grumpyYaml: '''
+defaults:
+  common:
+    update_barrels: true
+  repository:
+    repo_mixins:
+      - UseRepoMixin
+      - TransactionalMutationMixin
+    state_type: RepoState
+  model:
+    fields:
+      id:
+        type: String
+      displayName:
+        type: String
+        nullable: true
+        default: "'anonymous'"
+''',
+        grumpyConfigName: 'grumpy.yml',
+        files: <String, String>{'lib/auth/auth.dart': 'class Auth {}'},
+      );
+
+      final context = await analyzeProject(project.path);
+
+      expect(
+        context.config.generationDefaults.common['update_barrels'],
+        isTrue,
+      );
+      expect(
+        context
+            .config
+            .generationDefaults
+            .unitDefaults['repository']!['repo_mixins'],
+        <Object?>['UseRepoMixin', 'TransactionalMutationMixin'],
+      );
+      expect(
+        context.config.generationDefaults.defaultsForUnit(
+          'repository',
+        )['state_type'],
+        'RepoState',
+      );
+      expect(
+        context.config.generationDefaults.unitDefaults['model']!['fields'],
+        <String, Object?>{
+          'id': <String, Object?>{'type': 'String'},
+          'displayName': <String, Object?>{
+            'type': 'String',
+            'nullable': true,
+            'default': "'anonymous'",
+          },
+        },
       );
     });
 
@@ -443,6 +652,7 @@ environment:
   sdk: ^3.11.4
 ''',
   String? grumpyYaml,
+  String grumpyConfigName = 'grumpy.yaml',
   Map<String, String> files = const <String, String>{},
 }) async {
   final directory = await Directory.systemTemp.createTemp(
@@ -452,7 +662,7 @@ environment:
 
   await _writeFile(directory, 'pubspec.yaml', pubspec);
   if (grumpyYaml != null) {
-    await _writeFile(directory, 'grumpy.yaml', grumpyYaml);
+    await _writeFile(directory, grumpyConfigName, grumpyYaml);
   }
   for (final entry in files.entries) {
     await _writeFile(directory, entry.key, entry.value);

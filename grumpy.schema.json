@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://example.com/grumpy.schema.json",
-  "title": "grumpy.yaml",
-  "description": "Configuration for grumpy_context project discovery.",
+  "$id": "https://raw.githubusercontent.com/necodeIT/grumpy_context/refs/heads/main/grumpy.schema.json",
+  "title": "grumpy.yaml / grumpy.yml",
+  "description": "Configuration for grumpy_context project discovery and Mason brick defaults.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -56,6 +56,10 @@
           "$ref": "#/$defs/presentationLayer"
         }
       }
+    },
+    "defaults": {
+      "description": "Project-level defaults applied by Grumpy Mason brick pre_gen hooks before prompting.",
+      "$ref": "#/$defs/generationDefaults"
     }
   },
   "$defs": {
@@ -125,6 +129,266 @@
           "$ref": "#/$defs/pathList"
         }
       }
+    },
+    "generationDefaults": {
+      "description": "Generation defaults shared across all units or scoped to a specific unit type.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "common": {
+          "description": "Defaults merged into every unit before unit-specific defaults.",
+          "$ref": "#/$defs/generationDefaultsSection"
+        },
+        "unit": {
+          "description": "Defaults for the generic unit brick.",
+          "$ref": "#/$defs/generationDefaultsSection"
+        },
+        "module": {
+          "description": "Defaults for module generation.",
+          "$ref": "#/$defs/generationDefaultsSection"
+        },
+        "service": {
+          "description": "Defaults for service generation.",
+          "$ref": "#/$defs/generationDefaultsSection"
+        },
+        "datasource": {
+          "description": "Defaults for datasource generation.",
+          "$ref": "#/$defs/generationDefaultsSection"
+        },
+        "guard": {
+          "description": "Defaults for guard generation.",
+          "$ref": "#/$defs/generationDefaultsSection"
+        },
+        "middleware": {
+          "description": "Defaults for middleware generation.",
+          "$ref": "#/$defs/generationDefaultsSection"
+        },
+        "screen": {
+          "description": "Defaults for screen generation.",
+          "$ref": "#/$defs/generationDefaultsSection"
+        },
+        "component": {
+          "description": "Defaults for component generation.",
+          "$ref": "#/$defs/generationDefaultsSection"
+        },
+        "repository": {
+          "description": "Defaults for repository generation.",
+          "$ref": "#/$defs/generationDefaultsSection"
+        },
+        "model": {
+          "description": "Defaults for model generation.",
+          "$ref": "#/$defs/generationDefaultsSection"
+        }
+      }
+    },
+    "generationDefaultsSection": {
+      "description": "Supported generation option defaults. Explicit CLI or prompt values override these.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "update_barrels": {
+          "type": "boolean"
+        },
+        "generate_test": {
+          "type": "boolean"
+        },
+        "module": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target_directory": {
+          "type": "string",
+          "minLength": 1
+        },
+        "module_kind": {
+          "type": "string",
+          "enum": ["feature", "appRoot"]
+        },
+        "class_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "config_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "imports": {
+          "$ref": "#/$defs/stringList"
+        },
+        "route_mode": {
+          "type": "string",
+          "enum": ["none", "root", "child"]
+        },
+        "route_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "wire_target_file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "folders": {
+          "$ref": "#/$defs/stringList"
+        },
+        "layer": {
+          "type": "string",
+          "enum": ["domain", "infra"]
+        },
+        "contract_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "implementation_prefix": {
+          "type": "string",
+          "minLength": 1
+        },
+        "singleton": {
+          "type": "boolean"
+        },
+        "lifecycle": {
+          "type": "boolean"
+        },
+        "dependencies": {
+          "$ref": "#/$defs/stringList"
+        },
+        "extra_mixins": {
+          "$ref": "#/$defs/stringList"
+        },
+        "state_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "repo_mixins": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "UseRepoMixin",
+              "DeferredRepoMixin",
+              "QueryMixin",
+              "QueryByIdMixin",
+              "FuzzyFindQueryMixin",
+              "PersistentRepoStateMixin",
+              "TransactionalMutationMixin"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "query_item_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "persistence_serialized_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "redirect_to": {
+          "type": "string",
+          "minLength": 1
+        },
+        "async_body": {
+          "type": "boolean"
+        },
+        "middleware": {
+          "$ref": "#/$defs/stringList"
+        },
+        "preview_mode": {
+          "type": "string",
+          "enum": ["manual", "sameAsContent", "customMixins"]
+        },
+        "wrap_local_barrel": {
+          "type": "boolean"
+        },
+        "component_kind": {
+          "type": "string",
+          "enum": ["stateless", "stateful", "query"]
+        },
+        "query_data_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "query_repo": {
+          "type": "string",
+          "minLength": 1
+        },
+        "query_state_mixins": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "StatefulQueryContent",
+              "StatefulQueryError",
+              "StatefulQueryLoader"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "model_style": {
+          "type": "string",
+          "enum": ["plain", "freezed", "freezedJson"]
+        },
+        "extends_model": {
+          "type": "boolean"
+        },
+        "fields": {
+          "$ref": "#/$defs/modelFields"
+        },
+        "extra_interfaces": {
+          "$ref": "#/$defs/stringList"
+        }
+      }
+    },
+    "modelFields": {
+      "type": "object",
+      "description": "Model field definitions keyed by field name.",
+      "propertyNames": {
+        "pattern": "^[A-Za-z_$][A-Za-z0-9_$]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/modelFieldSpec"
+      }
+    },
+    "modelFieldSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "nullable": {
+          "type": "boolean"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "default": {
+          "description": "Raw Dart expression or scalar literal used as the field default value.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "stringList": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
     }
   }
 }
